@@ -12,6 +12,13 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
+# Optional separate bot used only to deliver manually fulfilled reseller orders.
+# If a public API order includes delivery_telegram_id, it sends to that user.
+# If no ID is given, it sends the delivery copy only to the admin who fulfills
+# the order, so the admin can forward it without exposing the main bot.
+# Customers must start this bot before Telegram permits it to DM them.
+DELIVERY_BOT_TOKEN = os.getenv("DELIVERY_BOT_TOKEN", "")
+
 ADMIN_IDS = [
     7943742895,
     6502433991,
@@ -27,21 +34,40 @@ GROUP_NOTIFICATIONS = True
 
 
 # ==========================================================
+# VERCEL / WEBHOOK
+# ==========================================================
+
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip("/")
+
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+
+CRON_SECRET = os.getenv("CRON_SECRET", "")
+
+WEBHOOK_PATH = "api/telegram"
+
+DEPOSIT_CHECK_PATH = "api/deposit_check"
+
+
+# ==========================================================
 # EXTERNAL RESELLER API
 # ==========================================================
 # A long random secret used only when hashing customer API keys. It must be
 # different from BOT_TOKEN and must never be committed to GitHub.
 API_KEY_PEPPER = os.getenv("API_KEY_PEPPER", "")
 
+# Encrypts the active reseller key so its owner can view it again in Telegram.
+# This must be a stable Fernet key and must never be committed or changed.
+API_KEY_ENCRYPTION_KEY = os.getenv("API_KEY_ENCRYPTION_KEY", "")
+
 # The public Wasmer gateway shown to users in the bot. Example:
-# https://my-reseller-api.wasmer.app. Do not put the Render bot URL here,
-# because it is an internal bridge only.
+# https://my-reseller-api.wasmer.app.  Do not put the Vercel/Render bot URL
+# here, because it is an internal bridge only.
 API_BASE_URL = os.getenv("API_BASE_URL", "").rstrip("/")
 API_RATE_LIMIT_PER_SECOND = max(1, int(os.getenv("API_RATE_LIMIT_PER_SECOND", "3")))
 
 # The gateway on Wasmer sends this value to the bot for every internal API
-# request. It must be a long random value, identical in Render and Wasmer
-# secrets, and must never be returned to an API client.
+# request.  It must be a long random value, identical in Vercel/Render and
+# Wasmer secrets, and must never be returned to an API client.
 INTERNAL_API_SECRET = os.getenv("INTERNAL_API_SECRET", "")
 
 
@@ -678,6 +704,7 @@ SECURITY_SESSION_COOKIE_HTTPONLY = True
 SECURITY_SESSION_COOKIE_SAMESITE = "Lax"
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 LOG_LEVEL = "INFO"
+TELEGRAM_WEBHOOK_DROP_PENDING_UPDATES = True
 TELEGRAM_POLLING_TIMEOUT = 30
 TELEGRAM_ALLOWED_UPDATES = ["message", "callback_query", "inline_query"]
 AUTO_BACKUP_ENABLED = False
@@ -699,6 +726,7 @@ LICENSE_TYPE = "Proprietary"
 ORGANIZATION_NAME = "ZDeals Enterprise"
 TIMEZONE = "Asia/Kolkata"
 INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "")
+EXTERNAL_WEBHOOK_TIMEOUT = 10
 MAX_RETRY_BACKOFF_FACTOR = 2.0
 CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5
 CIRCUIT_BREAKER_RECOVERY_TIMEOUT = 30
@@ -716,6 +744,7 @@ PASSWORD_HASHING_ROUNDS = 12
 ENCRYPTION_KEY_VERSION = 1
 FEATURE_FLAG_MULTI_CURRENCY = True
 FEATURE_FLAG_AUTO_REFUND = False
+FEATURE_FLAG_WEBHOOK_SIGNATURE_VERIFICATION = True
 ALLOWED_HOSTS = ["*"]
 CORS_ORIGINS = ["*"]
 CORS_CREDENTIALS = True
@@ -773,11 +802,12 @@ EVENT_BUS_BACKEND = "local"
 EVENT_BUS_TOPICS = ["deposit.created", "deposit.completed", "deposit.failed"]
 FEATURE_FLAG_ANALYTICS_V2 = True
 FEATURE_FLAG_DYNAMIC_PRICING = False
+FEATURE_FLAG_WEBHOOK_RETRY = True
 SYSTEM_BOOT_TIME = os.getenv("SYSTEM_BOOT_TIME", "2026-01-01T00:00:00Z")
 APP_INSTANCE_ID = os.getenv("APP_INSTANCE_ID", "zdeals-instance-01")
 CLUSTER_ID = os.getenv("CLUSTER_ID", "zdeals-cluster-primary")
 DEPLOYMENT_REGION = os.getenv("DEPLOYMENT_REGION", "ap-south-1")
-INFRASTRUCTURE_PROVIDER = os.getenv("INFRASTRUCTURE_PROVIDER", "render")
+INFRASTRUCTURE_PROVIDER = os.getenv("INFRASTRUCTURE_PROVIDER", "vercel")
 STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local")
 STORAGE_BUCKET_NAME = os.getenv("STORAGE_BUCKET_NAME", "zdeals-storage")
 STORAGE_REGION = os.getenv("STORAGE_REGION", "ap-south-1")

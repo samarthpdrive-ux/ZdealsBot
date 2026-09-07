@@ -14,10 +14,11 @@ class ApiKey(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
-    # Only the non-sensitive prefix is stored for display. The complete key is
-    # shown once to its owner, and only its SHA-256 hash is saved in MySQL.
+    # The complete key is encrypted at rest so its Telegram owner can view it
+    # again. Authentication always uses key_hash, never this encrypted value.
     key_prefix: Mapped[str] = mapped_column(String(20), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    encrypted_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

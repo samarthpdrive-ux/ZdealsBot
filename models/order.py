@@ -102,6 +102,15 @@ class Order(Base):
         nullable=True,
     )
 
+    # For a manual reseller API order, this is the reseller's end customer.
+    # The separate DELIVERY_BOT_TOKEN bot receives the completed delivery.
+    # NULL means deliver using the normal store-bot buyer ID.
+    delivery_telegram_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        nullable=True,
+        index=True,
+    )
+
     # ============================================================
     # RESELLER ORDER INFORMATION
     # ============================================================

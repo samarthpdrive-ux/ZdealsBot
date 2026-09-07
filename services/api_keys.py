@@ -1,12 +1,14 @@
-"""Shared, server-side API key functions. Never store raw API keys in MySQL."""
+"""Server-side API key functions with encrypted owner-only key display."""
 
 import hashlib
 import secrets
 from datetime import datetime
 
+from cryptography.fernet import Fernet, InvalidToken
+
 from database import SessionLocal
 from models.api_key import ApiKey
-from config import API_KEY_PEPPER
+from config import API_KEY_ENCRYPTION_KEY, API_KEY_PEPPER
 
 
 class ApiKeyConfigurationError(RuntimeError):
@@ -19,8 +21,30 @@ def _hash_key(raw_key: str) -> str:
     return hashlib.sha256(f"{API_KEY_PEPPER}:{raw_key}".encode("utf-8")).hexdigest()
 
 
+def _cipher() -> Fernet:
+    if not API_KEY_ENCRYPTION_KEY:
+        raise ApiKeyConfigurationError("API_KEY_ENCRYPTION_KEY is not configured")
+    try:
+        return Fernet(API_KEY_ENCRYPTION_KEY.encode("utf-8"))
+    except (ValueError, TypeError) as exc:
+        raise ApiKeyConfigurationError("API_KEY_ENCRYPTION_KEY is invalid") from exc
+
+
+def _encrypt_key(raw_key: str) -> str:
+    return _cipher().encrypt(raw_key.encode("utf-8")).decode("utf-8")
+
+
+def _decrypt_key(encrypted_key: str | None) -> str | None:
+    if not encrypted_key:
+        return None
+    try:
+        return _cipher().decrypt(encrypted_key.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        return None
+
+
 def create_api_key(telegram_id: int) -> tuple[str, ApiKey]:
-    """Rotate a user's API key and return the raw key exactly once."""
+    """Rotate a user's key and retain it encrypted for its owner to view."""
     raw_key = f"AK_{secrets.token_urlsafe(32)}"
     db = SessionLocal()
     try:
@@ -34,6 +58,7 @@ def create_api_key(telegram_id: int) -> tuple[str, ApiKey]:
             telegram_id=telegram_id,
             key_prefix=raw_key[:11],
             key_hash=_hash_key(raw_key),
+            encrypted_key=_encrypt_key(raw_key),
             is_active=True,
         )
         db.add(key)
@@ -50,6 +75,18 @@ def active_api_key(telegram_id: int) -> ApiKey | None:
         return db.query(ApiKey).filter(
             ApiKey.telegram_id == telegram_id, ApiKey.is_active == True
         ).order_by(ApiKey.id.desc()).first()
+    finally:
+        db.close()
+
+
+def active_api_key_with_secret(telegram_id: int) -> tuple[ApiKey | None, str | None]:
+    """Return the active record plus its owner-displayable encrypted key."""
+    db = SessionLocal()
+    try:
+        key = db.query(ApiKey).filter(
+            ApiKey.telegram_id == telegram_id, ApiKey.is_active == True
+        ).order_by(ApiKey.id.desc()).first()
+        return key, _decrypt_key(key.encrypted_key) if key else None
     finally:
         db.close()
 

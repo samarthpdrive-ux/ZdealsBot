@@ -25,6 +25,7 @@ from handlers.deposit import router as deposit_router
 from handlers.referral import router as referrals_router
 from handlers.support import router as support_router
 from handlers.user_promo import router as user_promo_router
+from handlers.api_keys import router as api_keys_router
 
 
 # ============================================================
@@ -123,6 +124,11 @@ dp.include_router(
 
 dp.include_router(
     user_promo_router
+)
+
+# API Access button handler
+dp.include_router(
+    api_keys_router
 )
 
 dp.include_router(

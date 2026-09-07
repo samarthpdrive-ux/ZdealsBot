@@ -1,41 +1,22 @@
-import asyncio
-import aiohttp
+import os
+import uuid
+import requests
 
-from services.reseller_manager import ResellerManager
+API_KEY = "AK_1Y2uVrEBMlhK7bkLD4AR_pZeAVoM-3E6Vp2R9TaZmhA"
 
+response = requests.post(
+    "https://zdeals-reseller-api.wasmer.app/api/reseller?action=order",
+    headers={
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+    },
+    json={
+        "product_id": "330001",
+        "quantity": 1,
+        "external_order_id": f"pycharm-{uuid.uuid4().hex}",
+    },
+    timeout=30,
+)
 
-async def main():
-
-    reseller = ResellerManager(
-        base_url="https://arrsnetworkzone.in",
-        api_key="AK_goIAW9WXCh3vIaP6Ox7bLRpGv7U5T4da",
-    )
-
-    connected, message = await reseller.test_connection()
-
-    if not connected:
-        print(f"❌ Reseller connection failed: {message}")
-        return
-
-    print(f"✅ {message}")
-
-    balance = await reseller.get_balance()
-
-    print("\n💰 BALANCE")
-    print(f"${balance:.2f}")
-
-    products = await reseller.get_products()
-
-    print(f"\n📦 PRODUCTS FOUND: {len(products)}")
-
-    for product in products:
-        print(
-            f"- {product.get('service_id')} | "
-            f"{product.get('name')} | "
-            f"${product.get('price')} | "
-            f"Stock: {product.get('stock')}"
-        )
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+print(response.status_code)
+print(response.json())

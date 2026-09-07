@@ -1739,7 +1739,12 @@ async def cancel_buy(callback: CallbackQuery, state: FSMContext):
 # ╚══════════════════════════════════════════════════════════════╝
 
 @retry_on_write_conflict(max_attempts=3)
-def _do_purchase(telegram_id: int, product_id: int, quantity: int) -> dict:
+def _do_purchase(
+    telegram_id: int,
+    product_id: int,
+    quantity: int,
+    delivery_telegram_id: int | None = None,
+) -> dict:
     with transaction() as db:
         user = db.query(User).filter(User.telegram_id == telegram_id).with_for_update().first()
         if not user:
@@ -1778,6 +1783,9 @@ def _do_purchase(telegram_id: int, product_id: int, quantity: int) -> dict:
         if quantity < 1:
             return {"error": "Quantity must be at least 1."}
 
+        if delivery_telegram_id is not None and delivery_telegram_id <= 0:
+            return {"error": "delivery_telegram_id must be a positive Telegram user ID."}
+
         # Final checkout reads the live rule, so a stopped rate cannot be
         # used from an already-open product or confirmation screen.
         custom_price = _active_custom_price(db, telegram_id, product.id)
@@ -1798,6 +1806,13 @@ def _do_purchase(telegram_id: int, product_id: int, quantity: int) -> dict:
             }
 
         delivery_type = (product.delivery_type or "automatic").lower()
+        if delivery_telegram_id is not None and delivery_type != "manual":
+            return {
+                "error": (
+                    "delivery_telegram_id can be used only with a product "
+                    "whose delivery type is manual."
+                )
+            }
         threshold = product.low_stock_threshold if product.low_stock_threshold is not None else DEFAULT_LOW_STOCK_THRESHOLD
 
         accounts = _accounts(product)
@@ -1838,7 +1853,8 @@ def _do_purchase(telegram_id: int, product_id: int, quantity: int) -> dict:
             telegram_id=user.telegram_id, product_id=product.id, product_name=product.name,
             delivered_account="\n".join(delivered_accounts) if delivered_accounts else None,
             amount=total_amount, quantity=quantity, delivery_type=delivery_type,
-            is_preorder=is_preorder_order, status=status, refunded=False
+            is_preorder=is_preorder_order, status=status, refunded=False,
+            delivery_telegram_id=delivery_telegram_id,
         )
         db.add(order)
         db.flush()

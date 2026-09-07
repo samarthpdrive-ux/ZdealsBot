@@ -7,7 +7,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import API_BASE_URL
-from services.api_keys import ApiKeyConfigurationError, active_api_key, create_api_key, revoke_api_key
+from services.api_keys import ApiKeyConfigurationError, active_api_key_with_secret, create_api_key, revoke_api_key
 from utils.ui import show
 
 
@@ -30,11 +30,20 @@ def _base_url() -> str:
 async def api_key_menu(callback: CallbackQuery):
     await callback.answer()
     try:
-        key = await asyncio.to_thread(active_api_key, callback.from_user.id)
+        key, raw_key = await asyncio.to_thread(active_api_key_with_secret, callback.from_user.id)
     except ApiKeyConfigurationError:
         await show(callback, "⚠️ <b>API Access Not Ready</b>\n\nThe administrator must configure API_KEY_PEPPER first.", parse_mode="HTML", reply_markup=_api_menu())
         return
-    status = f"✅ Active key: <code>{escape(key.key_prefix)}...</code>" if key else "❌ No active API key"
+    if raw_key:
+        status = f"✅ <b>Your active API key</b>\n<code>{escape(raw_key)}</code>"
+    elif key:
+        status = (
+            f"✅ Active key: <code>{escape(key.key_prefix)}...</code>\n"
+            "⚠️ This older key was created before secure key display was enabled. "
+            "Generate a new key once to show it here anytime."
+        )
+    else:
+        status = "❌ No active API key"
     await show(
         callback,
         "🔑 <b>RESELLER API ACCESS</b>\n\n"
@@ -43,7 +52,8 @@ async def api_key_menu(callback: CallbackQuery):
         "Your API key uses your wallet balance, current custom rates, stock, and automatic delivery.\n\n"
         f"🌐 Base URL: <code>{escape(_base_url())}/api/v1</code>\n"
         "📚 Documentation: <code>/docs</code>\n\n"
-        "Generating a new key immediately revokes your old key. The full key is shown only once.",
+        "Your active key stays visible here until you generate a new one or revoke it. "
+        "Generating a new key immediately revokes the old key.",
         parse_mode="HTML", reply_markup=_api_menu(),
     )
 
@@ -59,7 +69,7 @@ async def api_key_generate(callback: CallbackQuery):
     await show(
         callback,
         "✅ <b>NEW API KEY CREATED</b>\n\n"
-        "Copy this now. It cannot be displayed again.\n\n"
+        "You can open API Access anytime to view this active key again.\n\n"
         f"<code>{raw_key}</code>\n\n"
         "🔒 Keep it in your Wasmer server secret/environment variable. Do not place it in website JavaScript, HTML, screenshots, or GitHub.\n\n"
         f"API base: <code>{escape(_base_url())}/api/v1</code>",

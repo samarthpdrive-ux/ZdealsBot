@@ -68,6 +68,9 @@ class OrderRequest(BaseModel):
     quantity: int = Field(default=1, ge=1, le=100)
     # Required to make retrying safe. Send the same value again after a timeout.
     client_order_id: str = Field(min_length=1, max_length=80)
+    # For manual products only: send the reseller customer's Telegram user ID.
+    # The separate delivery bot sends the manual delivery to this ID.
+    delivery_telegram_id: int | None = Field(default=None, gt=0)
 
 
 def _api_error(code: str, message: str, http_status: int) -> HTTPException:
@@ -163,7 +166,13 @@ def _account_details(telegram_id: int) -> dict | None:
 
 
 def _order_payload(order: Order) -> dict:
-    delivered = [line for line in (order.delivered_account or "").splitlines() if line]
+    # Manual API order details are sent only by the separate Delivery Bot.
+    # This includes the no-recipient case, where the admin receives a copy
+    # to forward manually. Never return those details via the reseller API.
+    is_manual = order.delivery_type == "manual"
+    delivered = [] if is_manual else [
+        line for line in (order.delivered_account or "").splitlines() if line
+    ]
     return {
         "order_id": str(order.id),
         "service_id": str(order.product_id) if order.product_id is not None else None,
@@ -173,6 +182,17 @@ def _order_payload(order: Order) -> dict:
         "currency": "USDT",
         "status": order.status,
         "delivery_type": order.delivery_type,
+        "delivery_to_customer": bool(order.delivery_telegram_id),
+        "delivery_destination": (
+            "customer_delivery_bot" if order.delivery_telegram_id
+            else "admin_delivery_bot" if is_manual
+            else "api_response"
+        ),
+        "delivery_status": (
+            "sent_to_delivery_bot" if is_manual and order.status == "completed"
+            else "awaiting_manual_delivery" if is_manual
+            else None
+        ),
         "delivered_products": delivered,
         "created_at": order.created_at.isoformat() if order.created_at else None,
     }
@@ -286,7 +306,13 @@ async def create_order(payload: OrderRequest, principal: ApiPrincipal = Depends(
     if source == "reseller":
         result = await _do_reseller_purchase(principal.telegram_id, payload.service_id, payload.quantity)
     else:
-        result = await asyncio.to_thread(_do_purchase, principal.telegram_id, payload.service_id, payload.quantity)
+        result = await asyncio.to_thread(
+            _do_purchase,
+            principal.telegram_id,
+            payload.service_id,
+            payload.quantity,
+            payload.delivery_telegram_id,
+        )
 
     if result.get("error"):
         message = str(result["error"])
