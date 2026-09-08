@@ -1,15 +1,3 @@
-"""Public FastAPI entry point.
-
-Runs:
-- Telegram bot polling
-- Delivery bot polling
-- Deposit checker
-- Public reseller API
-
-Start:
-    python render_api.py
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -18,10 +6,10 @@ import os
 from contextlib import asynccontextmanager, suppress
 
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
-from api.reseller_v1 import router as reseller_router
+from api.reseller_v1 import router as internal_reseller_router
+
 from bot_app import bot, dp
 from delivery_bot_app import delivery_bot, delivery_dp
 from services.deposit_checker import deposit_checker_loop
@@ -36,26 +24,11 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 
-logger = logging.getLogger("render_api")
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# ENVIRONMENT
-# ============================================================
-
-PORT = int(os.getenv("PORT", "10000"))
-
-INTERNAL_SECRET = os.getenv("INTERNAL_API_SECRET", "").strip()
-
-if not INTERNAL_SECRET:
-    logger.warning(
-        "INTERNAL_API_SECRET is not configured. "
-        "The reseller API will reject requests."
-    )
-
-
-# ============================================================
-# APPLICATION LIFESPAN
+# LIFESPAN
 # ============================================================
 
 @asynccontextmanager
@@ -66,7 +39,7 @@ async def lifespan(app: FastAPI):
 
     try:
         # ----------------------------------------------------
-        # Telegram main bot
+        # Main Telegram bot
         # ----------------------------------------------------
 
         await bot.delete_webhook(drop_pending_updates=True)
@@ -74,7 +47,7 @@ async def lifespan(app: FastAPI):
         me = await bot.get_me()
 
         logger.info(
-            "Main Telegram bot connected: @%s",
+            "Main Telegram bot logged in as @%s",
             me.username,
         )
 
@@ -88,7 +61,7 @@ async def lifespan(app: FastAPI):
         )
 
         # ----------------------------------------------------
-        # Main Telegram polling
+        # Main bot polling
         # ----------------------------------------------------
 
         polling_task = asyncio.create_task(
@@ -116,7 +89,7 @@ async def lifespan(app: FastAPI):
                     handle_signals=False,
                     close_bot_session=False,
                 ),
-                name="delivery-polling",
+                name="delivery-bot-polling",
             )
 
             logger.info(
@@ -124,29 +97,45 @@ async def lifespan(app: FastAPI):
             )
 
         logger.info(
-            "FastAPI reseller API + Telegram services started"
+            "Telegram polling started"
+        )
+
+        logger.info(
+            "Private reseller API started"
+        )
+
+        logger.info(
+            "Available internal API: /internal/v1/products"
         )
 
         yield
 
     finally:
 
-        logger.info("Shutting down services...")
+        # ----------------------------------------------------
+        # Stop background tasks
+        # ----------------------------------------------------
 
-        tasks = (
+        for task in (
             delivery_polling_task,
             polling_task,
             deposit_task,
-        )
-
-        for task in tasks:
+        ):
             if task and not task.done():
                 task.cancel()
 
-        for task in tasks:
+        for task in (
+            delivery_polling_task,
+            polling_task,
+            deposit_task,
+        ):
             if task:
                 with suppress(asyncio.CancelledError):
                     await task
+
+        # ----------------------------------------------------
+        # Close sessions
+        # ----------------------------------------------------
 
         if bot.session:
             await bot.session.close()
@@ -154,16 +143,18 @@ async def lifespan(app: FastAPI):
         if delivery_bot and delivery_bot.session:
             await delivery_bot.session.close()
 
-        logger.info("Shutdown complete")
+        logger.info(
+            "Application shutdown complete"
+        )
 
 
 # ============================================================
-# FASTAPI
+# FASTAPI APPLICATION
 # ============================================================
 
 app = FastAPI(
     title="NomanBot Reseller API",
-    version="1.0.0",
+    version="2.0.0",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -172,48 +163,16 @@ app = FastAPI(
 
 
 # ============================================================
-# REQUEST LOGGING
+# PRIVATE RESELLER ROUTER
 # ============================================================
 
-@app.middleware("http")
-async def request_logger(request: Request, call_next):
-
-    logger.info(
-        "%s %s",
-        request.method,
-        request.url.path,
-    )
-
-    try:
-        response = await call_next(request)
-
-        logger.info(
-            "%s %s -> %s",
-            request.method,
-            request.url.path,
-            response.status_code,
-        )
-
-        return response
-
-    except Exception:
-        logger.exception(
-            "Unhandled request error: %s %s",
-            request.method,
-            request.url.path,
-        )
-
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "internal_server_error",
-                "message": "Internal server error.",
-            },
-        )
+app.include_router(
+    internal_reseller_router
+)
 
 
 # ============================================================
-# HEALTH
+# ROOT
 # ============================================================
 
 @app.get("/")
@@ -221,9 +180,12 @@ async def root():
     return {
         "status": "ok",
         "service": "NomanBot Reseller API",
-        "version": "1.0.0",
     }
 
+
+# ============================================================
+# HEALTH
+# ============================================================
 
 @app.get("/health")
 async def health():
@@ -234,24 +196,44 @@ async def health():
 
 
 # ============================================================
-# RESELLER API
+# ROUTE DEBUG
+# ============================================================
+#
+# TEMPORARY DIAGNOSTIC ROUTE.
+# Remove after everything works.
+#
 # ============================================================
 
-# IMPORTANT:
-#
-# This is now PUBLIC.
-#
-# There is no:
-#
-#     /internal/v1
-#
-# bridge anymore.
-#
-# Wasmer/external clients can call the API directly.
-#
-app.include_router(
-    reseller_router,
-)
+@app.get("/debug-routes")
+async def debug_routes():
+
+    routes = []
+
+    for route in app.routes:
+
+        methods = getattr(
+            route,
+            "methods",
+            None,
+        )
+
+        routes.append(
+            {
+                "path": getattr(
+                    route,
+                    "path",
+                    "",
+                ),
+                "methods": sorted(
+                    methods or []
+                ),
+            }
+        )
+
+    return {
+        "status": "ok",
+        "routes": routes,
+    }
 
 
 # ============================================================
@@ -260,14 +242,21 @@ app.include_router(
 
 if __name__ == "__main__":
 
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000",
+        )
+    )
+
     logger.info(
-        "Starting server on 0.0.0.0:%s",
-        PORT,
+        "Starting NomanBot Reseller API on port %s",
+        port,
     )
 
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=PORT,
+        port=port,
         log_level="info",
     )
